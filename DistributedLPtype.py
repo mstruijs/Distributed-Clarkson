@@ -2,6 +2,7 @@
 
 import random, math, time,logging
 import matplotlib.pyplot as plt
+from distributedLPtypeAlgorithms import LPTypeNetwork
 
 logging.basicConfig(filename="lastrun.log",level=logging.DEBUG,format='%(message)s')
 
@@ -466,6 +467,71 @@ def plot_test_data_final():
 	display_hull(perturbed_regular_hull(n,width),n,3,ax4)
 	
 	plt.show()
+
+class EnclosingDiskNetwork(LPTypeNetwork):
+	"""
+	Computes a minimum enclosing disk in 2D
+	"""
+	def reportline(self,line):
+		"""
+		The method used by the controller to provide runtime reports, should be implemented by inheriting class.
+		"""
+		with open("Enclosing_disk.log", 'a') as res:
+			res.write(line+'\n')			
+
+	def compute_f(self,dataset):
+		"""
+		A function that compute the cost of a particular subset of the LP-type problem in question. 
+		"""
+		return self.compute_solution(dataset)[1]
+	
+	def compute_solution(self,dataset):
+		"""
+		A function that compute the solution of a particular subset of the LP-type problem in question. 
+		"""
+		return compute_min_disk(dataset)[0]
+		
+	def compute_basis(self,dataset):
+		"""
+		A function that computes a basis of a particular subset of the LP-type problem in question.
+		"""
+		return compute_min_disk(dataset)[1]
+
+	def violating_datapoints(self,solution,dataset):
+		"""
+		Get all datapoints in dataset that violate the given solution
+		"""
+		res = []
+		for p in dataset:
+			if Point.EuclideanDistance(p, solution[0]) - solution[1] > 1E-4:
+				res.append(p)
+		return res
+		
+	def is_global_solution(self,solution):
+		"""
+		Tests whether a solution works globally, can be wise to override for the specific problem.
+		"""
+		for p in self.dataset:
+			if Point.EuclideanDistance(p, solution[0]) - solution[1] > 1E-4:
+				return False
+		return True
+		
+	def log_at_end_of_round(self):
+		"""
+		Optional logging at the end of each round
+		"""
+		max_solution = (Point(0,0),0)
+		for node in self.nodes:
+			solution = node.result
+			if solution[1] > max_solution[1]:
+				max_solution = solution
+		uncovered = []
+		for p in self.dataset:
+			if Point.EuclideanDistance(p, max_solution[0]) - max_solution[1] > 1E-4:
+				uncovered.append(p)
+		self.reportline("round: " + str(self.rounds) + "; data-size: " + str(self.global_data_count) + "; max_solution: " + str(max_solution))
+		self.reportline("uncovered: " + str(len(uncovered)) + "; " + str(uncovered[:100]))
+
 	
 if __name__ == "__main__":
 	"""
@@ -496,4 +562,12 @@ if __name__ == "__main__":
 	write_result_line("======================================")
 	test_run("low",20,lambda n: n,min_k=14)	
 	#"""
-	plot_test_data(2**6,10*2**6)
+	#plot_test_data(2**6,10*2**6)
+	n = 2**11
+	dataset = duo_disk(n,n*100)
+	network = EnclosingDiskNetwork(n,dataset,3,type=EnclosingDiskNetwork.LOW_LOAD)
+	print("===Parallel===")
+	network.run()
+	controller = Controller(n,dataset,type="low")
+	print("===Sequential===")
+	controller.run()

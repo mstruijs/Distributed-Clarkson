@@ -16,10 +16,12 @@ class LPTypeNode:
 		self.initial_local_samples = [] # initial samples of node, these will never be removed
 		self.result = None # current result local to node
 		self.node_barrier = self.network.node_barrier
-		self.id = id
+		self.id = id #node id, used to determine message origin (so a node cannot send a message to itself)
+		self.pull_phase = True # node is in "pull phase" (used only for LOWEST_LOAD algorithm)
 		
 	def add_initial_sample(self,datapoint):
 		self.initial_local_samples.append(datapoint)
+		self.pull_phase = False # node has an initial sample, so is not in pull phase
 
 	def push_and_receive(self,data):
 		"""
@@ -43,6 +45,13 @@ class LPTypeNode:
 		res = list(self.inbox)
 		self.inbox.clear()
 		return res
+	
+	def try_pull(self):
+		"""
+		Attempts to pull from a random node when in pull phase, otherwise waits.
+		Pull succeeds if the selected node was not in the pull phase at the start of this round
+		"""
+		self.control_action(self.network.distribute_pulls)
 	
 	def end_round(self):
 		"""
@@ -71,6 +80,7 @@ class LPTypeNetwork(ABC):
 	"""
 	LOW_LOAD = 1
 	HIGH_LOAD = 2	
+	LOWEST_LOAD = 3
 	
 	def __init__(self,n,datapoints,dimension,type=1,acceleration_factor=1,verification_result=None,initial_distribution_method=None,global_cost = None):
 		self.n = n #number of computational nodes
@@ -159,7 +169,7 @@ class LPTypeNetwork(ABC):
 		#start running nodes in separate processes:
 		self.node_threads = []
 		for node in self.nodes:
-			if self.type == self.LOW_LOAD:
+			if self.type == self.LOW_LOAD or self.type == self.LOWEST_LOAD:
 				node_target = self.run_node_low_load
 			elif self.type == self.HIGH_LOAD:
 				node_target =self.run_node_high_load			
@@ -167,11 +177,15 @@ class LPTypeNetwork(ABC):
 			thread.start()
 			self.node_threads.append(thread)
 		
-	def run_node_low_load(self,node):
+	def run_node_low_load(self,node):		
+		#ensure samples are in state before pulling
+		samples = node.initial_local_samples
+		if self.type == self.LOWEST_LOAD:
+			node.try_pull()
 		#sample random multiset R of size 3d^2 from network
 		R = node.sample_globally()
 		node.result = self.compute_solution(R)
-		samples = node.initial_local_samples
+		
 		samples.extend(node.local_samples)
 		W = self.violating_datapoints(node.result,samples)
 		received = node.push_and_receive(W)
@@ -217,8 +231,8 @@ class LPTypeNetwork(ABC):
 			thread.join()
 		total_time = time.time() - self.start_time
 		timing = "Total time elapsed: " + str(round(total_time,3)) + " s; avg round time: " + str(round(total_time/self.rounds,3)) + " s"
-		print(timing)
 		self.reportline(timing)
+		print(timing)
 		print("rounds: "+ str(self.rounds))
 		print("result: "+ str(self.result))
 		print("verify_result: " + str(self.verification_result))
@@ -227,13 +241,26 @@ class LPTypeNetwork(ABC):
 		while (not(self.push_queue.empty())):
 			(send_id, message) = self.push_queue.get()
 			#select other node uniformly at random
-			receive_id = (send_id + random.randint(1,n-1)) % n
+			receive_id = (send_id + random.randint(1,self.n-1)) % self.n
 			self.nodes[receive_id].inbox.append(message)
-	
+
+	def distribute_pulls(self):
+		for node in filter(lambda n: n.pull_phase, self.nodes):
+			#Try to send an element from another random node to yet another node
+			send_id = (node.id + random.randint(1,self.n-1)) % self.n
+			samples = self.nodes[send_id].initial_local_samples
+			if len(samples) > 0:
+				#Success, send element and end pull phase for node
+				receive_id = (node.id + random.randint(1,self.n-2)) % self.n
+				if receive_id == send_id:
+					receive_id = (node.id + self.n-1) % self.n
+				self.nodes[receive_id].initial_local_samples.append(random.choice(samples))
+				node.pull_phase = False
+			
 	def end_of_round(self):
 		self.rounds+=1
 		#update global data
-		if self.type == self.LOW_LOAD:
+		if self.type == self.LOW_LOAD or self.type == self.LOWEST_LOAD:
 			self.global_data.clear()
 			for node in self.nodes:
 				self.global_data.extend(node.local_samples)
@@ -334,9 +361,11 @@ if __name__ == "__main__":
 					uncovered.append(point)
 			self.reportline("round: " + str(self.rounds) + "; data-size: " + str(self.global_data_count) + "; max_solution: " + str(max_solution))
 			self.reportline("uncovered: " + str(len(uncovered)) + "; " + str(uncovered[:100]))
+			if self.type == self.LOWEST_LOAD:
+				self.reportline("nodes in pull-phase: " + str(sum([1 if n.pull_phase else 0 for n in self.nodes])))
 			
-	n = 2**4
-	dataset = [10*random.random() for i in range(100*n)]
-	network = ShortestEnclosingIntervalNetwork(n,dataset,2,type=ShortestEnclosingIntervalNetwork.HIGH_LOAD)
+	n = 2**11
+	dataset = [10*random.random() for i in range(2**5)]
+	network = ShortestEnclosingIntervalNetwork(n,dataset,2,type=ShortestEnclosingIntervalNetwork.LOW_LOAD)
 	network.run()
 	print("rounds",network.rounds)
