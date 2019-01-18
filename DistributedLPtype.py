@@ -326,101 +326,13 @@ class Multiset:
 		for (x,count) in data:
 			if x==a:
 """				
-
-def regular_convex_hull_perturbed(n,n_hull,width):
-	res= []
-	for i in range(n_hull):
-		r = random.uniform(0,width*math.sin(math.pi/n_hull)/2)
-		phi = random.uniform(0,2*math.pi)
-		x = width*math.cos(2*math.pi*i/n_hull) + r*math.cos(phi)
-		y = width*math.sin(2*math.pi*i/n_hull)+r*math.sin(phi)
-		res.append(Point(x,y))
-	#Pick a random convex combination of the hull points 
-	for i in range(n-n_hull):
-		weights = [random.random() for j in range(n_hull)]
-		total_weight = sum(weights)
-		x = sum([res[j].x*weights[j]/total_weight for j in range(n_hull)])
-		y = sum([res[j].y*weights[j]/total_weight for j in range(n_hull)])
-		res.append(Point(x,y))
-	return res	
-
-def regular_convex_hull_perturbed_exp(n,n_hull,width):
-	res= []
-	for i in range(n_hull):
-		r = 0#random.uniform(0,width*math.sin(math.pi/n_hull)/2)
-		phi = random.uniform(0,2*math.pi)
-		x = width*math.cos(2*math.pi*i/n_hull) + r*math.cos(phi)
-		y = width*math.sin(2*math.pi*i/n_hull)+r*math.sin(phi)
-		res.append(Point(x,y))
-		#res.append(Point(x,y)) = [Point(width*math.cos(2*math.pi*i/n_hull),width*math.sin(2*math.pi*i/n_hull)) for i in range(n_hull)]
-	#Pick a random convex combination of the hull points 
-	for i in range(n-n_hull):
-		v = [random.random() for j in range(n_hull-1)]
-		v.extend([0,1])
-		v.sort()
-		weights = [v[j+1]-v[j] for j in range(n_hull)]
-		x = sum([res[j].x*weights[j] for j in range(n_hull)])
-		y = sum([res[j].y*weights[j] for j in range(n_hull)])
-		res.append(Point(x,y))
-	return res	
-	
-def perturb_convex_hull(n,n_hull,width,original_hull):
-	res = original_hull(n,n_hull,width)
-	for i in range(n_hull):
-		r = random.uniform(0,width*math.sin(math.pi/n_hull)/2)
-		phi = random.uniform(0,2*math.pi)
-		res[i].x += r*math.cos(phi)
-		res[i].y += r*math.sin(phi)
-	return res
 	
 	
-def irregular_convex_hull(n,n_hull,min_length,max_length,min_angle,max_angle):
-	res = [Point(0,0), Point(random.uniform(min_length,max_length),0)]
-	prev_angle = 0
-	for i in range(2,n_hull):
-		#check whether angle is smaller than the line that closes the polygon
-		max_allowed_angle = min(math.atan2(res[i-1].y,res[i-1].x)+math.pi,max_angle)
-		#print(max_allowed_angle)
-		if prev_angle+min_angle> max_allowed_angle:
-			angle = random.uniform(prev_angle,max_allowed_angle)
-		else:
-			angle = random.uniform(prev_angle+min_angle,max_allowed_angle)
-		#check whether the point is positive
-		if angle > math.pi:
-			max_allowed_length = min(res[i-1].y/math.sin(angle-math.pi),max_length)
-		else: 
-			max_allowed_length = max_length
-		if min_length>max_allowed_length:
-			length = random.uniform(max_allowed_length/2,max_allowed_length)
-		else:
-			length = random.uniform(min_length,max_allowed_length)
-		res.append(Point(res[i-1].x+length*math.cos(angle),res[i-1].y+length*math.sin(angle)))		
-		prev_angle = angle
-		#print("angle",angle)
-	#Pick a random convex combination of the hull points 
-	for i in range(n-n_hull):
-		weights = [random.random() for j in range(n_hull)]
-		total_weight = sum(weights)
-		x = sum([res[j].x*weights[j]/total_weight for j in range(n_hull)])
-		y = sum([res[j].y*weights[j]/total_weight for j in range(n_hull)])
-		res.append(Point(x,y))
-	return res
-
-def triple_disk_old(n,width):
-	res = [Point(width*math.cos(2*math.pi*i/3),width*math.sin(2*math.pi*i/3)) for i in range(3)]
-	disk = (Point(0,0),width)
-	#print(disk)
-	for i in range(n-3):
-		r = disk[1]*random.uniform(0,1-1E-4)
-		phi = random.uniform(0,2*math.pi)
-		res.append(Point(disk[0].x + r*math.cos(phi), disk[0].y + r*math.sin(phi)))
-	#print(compute_min_disk(res))
-	return res
 
 def triple_disk(n,width):
+	"""Returns a dataset where 3 points define a disk, with all remaining points uniformly random distributed in the interior of that disk"""
 	res = [Point(width*math.cos(2*math.pi*i/3),width*math.sin(2*math.pi*i/3)) for i in range(3)]
 	disk = (Point(0,0),width)
-	#print(disk)
 	for i in range(n-3):
 		while(True):
 			x = random.uniform(-width,width)
@@ -428,10 +340,10 @@ def triple_disk(n,width):
 			if Point.EuclideanDistance(Point(x,y),disk[0]) - width < 10E-4:
 				res.append(Point(x,y))
 				break
-			#print(compute_min_disk(res))
 	return res
 
 def duo_disk(n,width):
+	"""Returns a dataset where 2 points define a disk, with all remaining points uniformly random distributed in the interior of that disk"""
 	res = [Point(-width,0),Point(width,0)]
 	disk = (Point(0,0),width)
 	#print(disk)
@@ -442,21 +354,10 @@ def duo_disk(n,width):
 			if Point.EuclideanDistance(Point(x,y),disk[0]) - width < 10E-4:
 				res.append(Point(x,y))
 				break
-			#print(compute_min_disk(res))
 	return res
 	
-	
-def duo_disk_old(n,width):
-	res = [Point(-width,0),Point(width,0)]
-	disk = (Point(0,0),width)
-	for i in range(n-3):
-		r = disk[1]*random.uniform(0,1-1E-4)
-		phi = random.uniform(0,2*math.pi)
-		res.append(Point(disk[0].x + r*math.cos(phi), disk[0].y + r*math.sin(phi)))
-	#print(compute_min_disk(res))
-	return res
-
 def triangle(n,width):
+	"""Returns a dataset where a triangle is defined by 3 points and the remaining points are distributed uniformly at random on the interior of the triangle."""
 	res = [Point(width*math.cos(2*math.pi*i/3),width*math.sin(2*math.pi*i/3)) for i in range(3)]
 	for i in range(n-3):
 		v = [random.uniform(0,1-1E-4) for j in range(2)]
@@ -466,10 +367,10 @@ def triangle(n,width):
 		x = sum([res[j].x*weights[j] for j in range(3)])
 		y = sum([res[j].y*weights[j] for j in range(3)])
 		res.append(Point(x,y))
-	#print(compute_min_disk(res))
 	return res
 
 def perturbed_regular_hull(n,width):
+	"""Returns a dataset where all points are randomly perturbed from the vertices of a regular polygon"""
 	res = []
 	for i in range(n):
 		r = random.uniform(0,width*math.sin(math.pi/n)/2)
@@ -477,53 +378,10 @@ def perturbed_regular_hull(n,width):
 		x = width*math.cos(2*math.pi*i/n) + r*math.cos(phi)
 		y = width*math.sin(2*math.pi*i/n) + r*math.sin(phi)
 		res.append(Point(x,y))
-	#print(compute_min_disk(res))
-	return res
-
-	
-def convex_hull_tests():
-	n = 2**13
-	for hull_size in [3,4,5,8,13,21,int(n/3),n]:
-		#test regular hull
-		"""
-		rounds = 0
-		for i in range(10):
-			controller = Controller(n,regular_convex_hull(n,hull_size,10000))
-			controller.run_low_load()
-			rounds+= controller.rounds
-		logging.info("Rounds at regular hull with hull size"+ str(round(hull_size,2)) +": " + str(rounds/10))
-		#test irregular hull
-		rounds = 0
-		for i in range(10):
-			controller = Controller(n,irregular_convex_hull(n,hull_size,100,10000,0.01,math.pi))
-			controller.run_low_load()
-			rounds+= controller.rounds
-		logging.info("Rounds at irregular hull with hull size"+ str(round(hull_size,2)) +": " + str(rounds/10))
-		#test regular hull with interior convex combinations
-		rounds = 0
-		for i in range(10):
-			controller = Controller(n,regular_convex_hull_convex_combinations(n,hull_size,10000))
-			controller.run_low_load()
-			rounds+= controller.rounds
-		logging.info("Rounds at regular hull with convex interior with hull size"+ str(round(hull_size,2)) +": " + str(rounds/10))
-		#test perturbed regular hull
-		rounds = 0		
-		for i in range(10):
-			controller = Controller(n,perturb_convex_hull(n,hull_size,10000,regular_convex_hull))
-			controller.run_low_load()
-			rounds+= controller.rounds
-		logging.info("Rounds at perturbed regular hull with hull size"+ str(round(hull_size,2)) +": " + str(rounds/10))
-		#"""
-		#test perturbed regular hull with interior convex combinations
-		rounds = 0
-		for i in range(10):
-			controller = Controller(n,regular_convex_hull_perturbed(n,hull_size,10000))
-			controller.run_low_load()
-			rounds+= controller.rounds
-		logging.info("Rounds at perturbed regular hull with convex interior with hull size"+ str(round(hull_size,2)) +": " + str(rounds/10))
-		
+	return res		
 
 def display_hull(data,n,n_hull,axes=None):
+	"""Plots hulls, should probably be moved to the data-crunching module"""
 	if n_hull>0:
 		hull_x = [p.x for p in data[:n_hull]]
 		hull_x.append(data[0].x)
@@ -533,7 +391,6 @@ def display_hull(data,n,n_hull,axes=None):
 	interior_y = [p.y for p in data[n_hull:]]
 	
 	if axes==None:
-		#base = plt
 		fig = plt.figure()
 		base = fig.add_subplot(111)		
 	else:
@@ -546,10 +403,10 @@ def display_hull(data,n,n_hull,axes=None):
 		base.plot(hull_x,hull_y, 'r-')
 		base.plot(hull_x,hull_y, 'ro')
 	return base
-	#plt.show()
 
 def test_run(type,k,datasize,acceleration_func= lambda n : 1,min_k=1):
-	for test_case in [duo_disk]:#,triple_disk,perturbed_regular_hull,triangle]:
+	"""Run and log tests with various parameters"""
+	for test_case in [duo_disk,triple_disk,perturbed_regular_hull,triangle]:
 		write_result_line("===="+ test_case.__name__+"====")
 		for i in range(min_k,k):
 			rounds= []
@@ -568,18 +425,9 @@ def test_run(type,k,datasize,acceleration_func= lambda n : 1,min_k=1):
 def write_result_line(line):
 	with open("results.txt",'a') as res:
 		res.write(line+'\n')
-	
-def plot_hulls():	
-	n = 2**13
-	hull_size = 3
-	display_hull(regular_convex_hull(n,hull_size,10000),n,hull_size)
-	display_hull(irregular_convex_hull(n,hull_size,100,10000,0.01,math.pi),n,hull_size)
-	display_hull(regular_convex_hull_convex_combinations(n,hull_size,10000),n,hull_size)
-	display_hull(perturb_convex_hull(n,hull_size,10000,regular_convex_hull),n,hull_size)
-	display_hull(regular_convex_hull_perturbed(n,hull_size,10000),n,hull_size)
-	display_hull(regular_convex_hull_perturbed_exp(n,hull_size,10000),n,hull_size)
 
 def plot_test_data(n,width):
+	"""should probably be moved to the data-crunching module"""
 	for (method,x) in [(triple_disk,3), (duo_disk,2),(triangle,3)]:
 		display_hull(method(n,width),n,x);plt.show()
 	data = perturbed_regular_hull(n,width)
@@ -594,6 +442,7 @@ def plot_test_data(n,width):
 	plt.show()
 		
 def plot_test_data_final():
+	"""should probably be moved to the data-crunching module"""
 	n,width = 2**10,10*2**10
 	fig, [[ax1,ax2], [ax3,ax4]] =	plt.subplots(2,2)
 	ax1.set_xticks([])
@@ -619,49 +468,6 @@ def plot_test_data_final():
 	plt.show()
 	
 if __name__ == "__main__":
-	A = Point(1,0)
-	B = Point(3,4)
-	C = Point(-1,-1)
-	F = Point(2,0)
-	G = Point(0,2)
-	I = Point(8,8)
-	J = Point(12,4)
-	H = Point(8,2)
-	K = Point(7,4)
-	L = Point(10,7)
-	#print(circumcircle(A,B,C))
-	#print(compute_min_disk([A,B,C,F,G]))
-	#print(compute_min_disk([L,I,K,H,J]))
-	points = [H,I,J,K,L]
-	#n = 10000
-	#print(grid_points(10,10,5))
-	#controller = Controller(n*n,grid_points(n,n,10))
-	#controller = Controller(n,uniform_random_disk(n,10*n**2))
-	#controller = Controller(n,small_hull(n,10*n**2))	
-	"""
-	k=15
-	for i in range(k):
-		rounds= 0
-		for j in range(10):
-			n=2**i
-			controller= Controller(n,small_hull(n,10*n))
-			controller.run_low_load()
-			rounds+= controller.rounds
-		logging.info("Rounds at 2^"+ str(i) +": " + str(rounds/10))
-	"""
-	#print(irregular_convex_hull(20,6,2,10,math.pi/4,2*math.pi))
-	#convex_hull_tests()
-	#plot_hulls()
-	#n=2**13
-	#hull_size = 3
-	#display_hull(regular_convex_hull_perturbed_exp(n,hull_size,10000),n,hull_size)
-	#print(compute_min_disk())
-	#plot_test_data(2**13,10000)
-	#n = 2**8
-	#width = 1000
-	#controller = Controller(n,triangle(n,width))
-	#controller.run_high_load()
-	#controller.run_low_load()
 	"""
 	write_result_line("======================================")
 	write_result_line("= low load algo: |H|=O(n)            =")

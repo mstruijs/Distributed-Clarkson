@@ -9,7 +9,7 @@ from queue import Queue
 from abc import ABC, abstractmethod
 
 class LPTypeNode:
-	def __init__(self,id,controller,waiting_barrier,event):
+	def __init__(self,id,controller,waiting_barrier):
 		self.controller = controller
 		#self.inbox = {}
 		#self.outbox = {}
@@ -21,7 +21,6 @@ class LPTypeNode:
 		self.initial_local_samples = []
 		self.result = None
 		self.waiting_barrier = waiting_barrier
-		self.receive_data_event = event
 		self.id = id
 		
 	def add_initial_sample(self,datapoint):
@@ -37,12 +36,14 @@ class LPTypeNode:
 		self.waiting_barrier.wait()
 		
 	
-	def pull(self):
+	def push_receive(self):
 		"""
-		Pulls a list of data from random nodes (via the controller)
+		Waits to receive pushed data from random nodes (via the controller)
 		"""
 		self.controller.messages_processed_event.wait()
-		return self.inbox
+		res = self.inbox
+		self.inbox.clear()
+		return res
 	
 	def end_round(self):
 		"""
@@ -94,7 +95,7 @@ class LPTypeController(ABC):
 		#Set labels to identify the message queues
 		if self.type == self.LOW_LOAD:
 			self.message_labels = ["W"] #The label W represents the datapoints violated by some solution
-		if self.type == self.HIGH_LOAD:
+		elif self.type == self.HIGH_LOAD:
 			self.message_labels = ["W","Basis"] #The label Basis represents a basis to be shared.
 			
 		self.acceleration_factor = acceleration_factor #How many times the basis is copied before sending in the high-load algorithm
@@ -149,12 +150,9 @@ class LPTypeController(ABC):
 	
 	def initialise_network(self):
 
-		#construct shared variables and interprocess communication 
-		self.node_events = []
 		#create n nodes and store them
 		for i in range(self.n):
-			self.node_events.append(Event())
-			self.nodes.append(LPTypeNode(i,self,self.node_waiting_barrier,self.node_events[i]))
+			self.nodes.append(LPTypeNode(i,self,self.node_waiting_barrier))
 		#create some distribution of data to nodes
 		distribution = self.initial_distribution_method(self.n,len(self.global_data))
 		#distribute data
@@ -163,7 +161,11 @@ class LPTypeController(ABC):
 		#start running nodes in separate processes:
 		self.node_threads = []
 		for node in self.nodes:
-			thread = Thread(target=self.run_node_low_load,args=(node,))
+			if self.type == self.LOW_LOAD:
+				node_target = self.run_node_low_load
+			elif self.type == self.HIGH_LOAD:
+				node_target =self.run_node_high_load			
+			thread = Thread(target=node_target,args=(node,))
 			thread.start()
 			self.node_threads.append(thread)
 		
@@ -175,7 +177,7 @@ class LPTypeController(ABC):
 		samples.extend(node.local_samples)
 		W = self.violating_datapoints(node.result,samples)
 		node.push(W)
-		received = node.pull()
+		received = node.push_receive()
 		node.local_samples.extend(received)
 		#Remove samples
 		new_local_samples = []
@@ -199,7 +201,7 @@ class LPTypeController(ABC):
 		while(not(self.terminated) and self.rounds <100):
 			self.terminated = self.process_round()
 			self.round_end_event.set()
-		#wait for threads to finish
+		#wait for node threads to finish
 		for thread in self.node_threads:
 			thread.join()
 		total_time = time.time() - self.start_time
@@ -223,20 +225,12 @@ class LPTypeController(ABC):
 		self.rounds+=1
 		self.round_end_event.clear()
 		self.messages_processed_event.clear()
-		#No need to process all individual nodes synchronously, just wait
-		#for node in nodes:
-		#	node.process_round_low_load()
-		
-		#send samples 
-		#for connection in self.node_connections:
-		#	connection.send(self.get_global_sample(3*self.dimension**2))
 		
 		#wait for nodes to finish pushing "W"
 		self.node_waiting_barrier.wait()
 		#print("reset barrier A")
 		self.node_waiting_barrier.reset()
 		#TODO process messages, concurrently with sending?
-		#node_receiving_messages = []*n
 		#divide messages
 		while (not(self.push_queue.empty())):
 			(send_id, message) = self.push_queue.get()
@@ -261,16 +255,58 @@ class LPTypeController(ABC):
 		
 		#receive new local solutions
 		local_solutions = []
+		global_solution_found = False
 		for node in nodes:
 			solution = node.result
 			local_solutions.append(solution)
 			if self.is_global_solution(solution):
 				self.result = solution
-				return True
+				global_solution_found = True
+				break
 		#perform optional logging
-		self.log_partial_solutions(local_solutions)
+		self.log_partial_solutions()
+		return global_solution_found
+
+	def process_round_high_load(self):
+		n = self.n
+		nodes = self.nodes
+		self.rounds+=1
+		self.round_end_event.clear()
+		self.messages_processed_event.clear()		
+		for i in range(n):
+			for label in self.message_labels:
+				for message in nodes[i].outbox[label]:
+					j =  (i + random.randint(1,n-1)) % n
+					nodes[j].inbox[label].append(message)
+				nodes[i].outbox[label] = []
+		#No need to keep track of global data, size is nice for logging
+		self.global_data_count = sum([len(node.local_samples) for node in nodes])
+		#log 
+		max_disk = (Point(0,0),0)
+		for node in nodes:
+			if node.disk[1] > max_disk[1]:
+				max_disk = node.disk
+		uncovered = []
+		true_uncovered_count = 0 #count all points that are also missed by the reference disk
+		for point in self.dataset:
+			if Point.EuclideanDistance(point,max_disk[0]) - max_disk[1] > 1E-4:
+				uncovered.append((point,Point.EuclideanDistance(point,max_disk[0])))
+				if not(Point.EuclideanDistance(point,self.verified_min_disk[0]) - self.verified_min_disk[1] > 1E-4):
+					true_uncovered_count+=1
+		logging.info("round: " + str(self.rounds) + "; data-size: " + str(self.global_data_count) + "; max_disk: " + str(max_disk))
+		logging.info("uncovered: " + str(true_uncovered_count) + "; " + str(uncovered[:100]))		
+		#check termination
+		for node in nodes:
+			if check_disk_cover(node.disk, self.dataset):
+				self.result = node.disk
+				return True
+		#Check if the blocking nodes are also blocking on the reference disk
+		if true_uncovered_count==0:
+			logging.info("NOTE: Disk is found, but does not cover due to rounding error")
+			return True
 		return False
-	
+
+		
 	def nodes_finished(self):
 		for node in self.nodes:
 			if not(node.waiting):
@@ -564,13 +600,24 @@ if __name__ == "__main__":
 			"""
 			return solution[0] <= min(self.dataset) and max(self.dataset) <= solution[1]
 			
-		def log_partial_solutions(self,solutions):
+		def log_partial_solutions(self):
 			"""
-			Optional logging of incomplete solutions, does nothing unless overridden
+			Optional logging of incomplete solutions
 			"""
-			pass
-	n = 10
-	dataset = [10*random.random() for i in range(100*n)]
+			max_solution = (0,0)
+			for node in self.nodes:
+				solution = node.result
+				if solution[1]-solution[0] > max_solution[1] - max_solution[0]:
+					max_solution = solution
+			uncovered = []
+			for point in self.dataset:
+				if point < max_solution[0] or point > max_solution[1]:
+					uncovered.append(point)
+			self.reportline("round: " + str(self.rounds) + "; data-size: " + str(len(self.global_data)) + "; max_solution: " + str(max_solution))
+			self.reportline("uncovered: " + str(len(uncovered)) + "; " + str(uncovered[:100]))
+			
+	n = 2**11
+	dataset = [10*random.random() for i in range(n)]
 	controller = ShortestEnclosingIntervalController(n,dataset,2)
 	controller.run()
-	print("rounds"  controller.rounds())
+	print("rounds",controller.rounds)
