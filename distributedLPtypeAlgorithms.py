@@ -4,7 +4,7 @@ Represents the algorithms for an abstract LP-type problem.
 """
 
 import time, random
-from threading import Thread,Event,Barrier
+from threading import Thread,Barrier
 from queue import Queue
 from abc import ABC, abstractmethod
 
@@ -15,7 +15,7 @@ class LPTypeNode:
 		self.local_samples = [] # local samples of this node, excluding intial samples
 		self.initial_local_samples = [] # initial samples of node, these will never be removed
 		self.result = None # current result local to node
-		self.waiting_barrier = self.network.node_waiting_barrier
+		self.node_barrier = self.network.node_barrier
 		self.id = id
 		
 	def add_initial_sample(self,datapoint):
@@ -39,19 +39,7 @@ class LPTypeNode:
 		"""
 		Waits to receive pushed data from random nodes (via the controller)
 		"""
-		if self.network.messages_processed_event.is_set():
-			print(self.id, "EVENT CLEARED")
-			self.network.messages_processed_event.clear()
-		#print(self.id, "at barrier")
-		barrier_id = self.waiting_barrier.wait()
-
-		if barrier_id == 0:
-			print(self.id, "distributing")
-			self.network.distribute_messages()
-		else:
-			print(self.id,"before wait")
-			self.network.messages_processed_event.wait()
-			print(self.id, "after wait")
+		self.control_action(self.network.distribute_messages)
 		res = list(self.inbox)
 		self.inbox.clear()
 		return res
@@ -60,12 +48,17 @@ class LPTypeNode:
 		"""
 		Synchronize the nodes and run cleanup at the end of the round.
 		"""
-		if self.network.round_end_event.is_set():
-			self.network.round_end_event.clear()
-		barrier_id = self.waiting_barrier.wait()
+		self.control_action(self.network.end_of_round)
+	
+	def control_action(self,action):
+		"""
+		Perform action by a single node while all other nodes wait, 
+		so the action can safely modify global state
+		"""
+		barrier_id = self.node_barrier.wait()
 		if barrier_id == 0:
-			self.network.end_of_round()
-		self.network.round_end_event.wait()
+			action()
+		self.node_barrier.wait()
 	
 	def sample_globally(self):
 		return self.network.get_global_sample(6*self.network.dimension**2)
@@ -98,21 +91,12 @@ class LPTypeNetwork(ABC):
 			self.verification_result = verification_result
 		self.global_data_count = 0 #Total number of data objects, useful for algorithms that do not maintain self.global_data
 		self.type = type #Type of algorithm to execute
-		self.messages_processed_event = Event() #event to signal nodes that all pushed messages have been received 
-		self.round_end_event = Event() #event to signal nodes that the round has ended and either the next round begins or thread should end
-		self.node_waiting_barrier = Barrier(n) #Barrier to indicate that all nodes are waiting
+		self.node_barrier = Barrier(n) #Barrier to indicate that all nodes are waiting
 		self.push_queue = Queue() # Queue to receive pushed messages from nodes
 		if initial_distribution_method == None:
 			self.initial_distribution_method = self.uniform_random
 		else:
 			self.initial_distribution_method = initial_distribution_method #The method how to perform the original distribution of data to nodes
-		#TODO are these labels needed?
-		#Set labels to identify the message queues 
-		if self.type == self.LOW_LOAD:
-			self.message_labels = ["W"] #The label W represents the datapoints violated by some solution
-		elif self.type == self.HIGH_LOAD:
-			self.message_labels = ["W","Basis"] #The label Basis represents a basis to be shared.
-		
 		self.acceleration_factor = acceleration_factor #How many times the basis is copied before sending in the high-load algorithm
 		self.terminated = False #whether the algorithm has terminated.
 	
@@ -212,9 +196,6 @@ class LPTypeNetwork(ABC):
 		basis = self.compute_basis(node.local_samples)
 		#push and receive basis
 		received_basis = node.push_and_receive([basis] * self.acceleration_factor)
-		#synchronize between messaging 
-		#TODO figure out why this is nessecary, does the event not synchronise?
-		self.node_waiting_barrier.wait()
 		#push local data that violates received basis
 		for basis in received_basis:
 			solution = self.compute_solution(basis)
@@ -245,11 +226,9 @@ class LPTypeNetwork(ABC):
 	def distribute_messages(self):
 		while (not(self.push_queue.empty())):
 			(send_id, message) = self.push_queue.get()
-			#print(message)
 			#select other node uniformly at random
 			receive_id = (send_id + random.randint(1,n-1)) % n
 			self.nodes[receive_id].inbox.append(message)
-		self.messages_processed_event.set()
 	
 	def end_of_round(self):
 		self.rounds+=1
@@ -277,8 +256,6 @@ class LPTypeNetwork(ABC):
 		#terminate or continue		
 		if global_solution_found or self.rounds>=100:
 			self.terminated = True
-		#signal end of round
-		self.round_end_event.set()
 
 	def get_global_sample(self,k):
 		if k<= len(self.global_data):
